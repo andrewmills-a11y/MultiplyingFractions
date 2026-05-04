@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fraction Pizza Explorer - Light Mode</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --accent: #d97706; /* Warmer orange-yellow for light mode */
+            --text: #1e293b;
+            --secondary: #0284c7;
+            --border: #e2e8f0;
+            --pizza-empty: #f1f5f9;
+            --equation-bg: #f1f5f9;
+        }
+
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', system-ui, sans-serif; 
+            background-color: var(--bg); color: var(--text); 
+            margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+
+        #app-wrapper {
+            width: 98vw; height: 95vh; max-width: 1300px;
+            background: var(--card); border-radius: 20px; border: 1px solid var(--border);
+            padding: 15px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            display: flex; flex-direction: row; gap: 15px;
+        }
+
+        .sidebar { flex: 0 0 240px; display: flex; flex-direction: column; gap: 10px; border-right: 1px solid var(--border); padding-right: 15px; }
+        .main-view { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+        .header h1 { margin: 0; font-size: 1.1rem; color: var(--secondary); text-align: center; }
+
+        .phase-box {
+            background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+            padding: 12px; display: flex; flex-direction: column; gap: 10px;
+        }
+
+        .disabled { opacity: 0.3; pointer-events: none; filter: grayscale(0.5); }
+
+        .input-group { display: flex; flex-direction: column; gap: 4px; }
+        .label-row { display: flex; justify-content: space-between; align-items: center; }
+        label { font-size: 0.6rem; text-transform: uppercase; color: #64748b; font-weight: 700; }
+        .val-badge { background: var(--secondary); color: white; padding: 1px 6px; border-radius: 4px; font-weight: 800; font-size: 0.75rem; }
+
+        input[type=range] { width: 100%; cursor: pointer; accent-color: var(--secondary); }
+
+        .equation-area {
+            font-size: 1.4rem; font-weight: 800; text-align: center; height: 70px;
+            color: var(--text); display: flex; align-items: center; justify-content: center;
+            background: var(--equation-bg); border-radius: 10px; border: 1px solid var(--border);
+            gap: 12px;
+        }
+
+        .frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; }
+        .frac-num { border-bottom: 2px solid var(--text); padding: 0 3px; line-height: 1; }
+        .frac-den { padding: 0 3px; line-height: 1.2; }
+        .mixed-whole { font-size: 2.2rem; color: var(--accent); margin-right: 2px; }
+
+        .canvas-container { flex: 1; position: relative; background: #ffffff; border-radius: 10px; border: 1px solid var(--border); overflow: hidden; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+        button {
+            background: var(--secondary); color: white; border: none; 
+            padding: 10px; border-radius: 6px; font-weight: 800; 
+            cursor: pointer; font-size: 0.85rem; transition: background 0.2s;
+        }
+        button:hover { background: #0369a1; }
+        .reset-btn { background: #64748b; color: white; }
+
+        @media (max-width: 800px) {
+            #app-wrapper { flex-direction: column; height: 98vh; overflow-y: auto; }
+            .sidebar { flex: 0 0 auto; width: 100%; border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: 10px; }
+            body { overflow: auto; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="app-wrapper">
+    <div class="sidebar">
+        <div class="header"><h1>🍕 Pizza Fractions</h1></div>
+        
+        <div id="p1" class="phase-box">
+            <div class="input-group">
+                <div class="label-row"><label>Numerator</label><span class="val-badge" id="num-val">1</span></div>
+                <input type="range" id="num" min="1" max="11" value="1">
+            </div>
+            <div class="input-group">
+                <div class="label-row"><label>Denominator</label><span class="val-badge" id="den-val">4</span></div>
+                <input type="range" id="den" min="2" max="12" value="4">
+            </div>
+            <button onclick="goPhase2()">Lock Fraction</button>
+        </div>
+
+        <div id="p2" class="phase-box disabled">
+            <div class="input-group">
+                <div class="label-row"><label>Multiply by</label><span class="val-badge" id="m-val">3</span></div>
+                <input type="range" id="m" min="1" max="16" value="3">
+            </div>
+            <button onclick="goPhase3()">Multiply!</button>
+        </div>
+
+        <button id="reset" class="reset-btn" style="display:none" onclick="reset()">Start Over</button>
+    </div>
+
+    <div class="main-view">
+        <div class="equation-area" id="eq"></div>
+        <div class="canvas-container" id="container">
+            <canvas id="cvs"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    const cvs = document.getElementById('cvs');
+    const ctx = cvs.getContext('2d');
+    const container = document.getElementById('container');
+    let phase = 1;
+    let mouseX = -1000, mouseY = -1000;
+
+    function resize() {
+        cvs.width = container.clientWidth;
+        cvs.height = container.clientHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const sliders = {
+        den: document.getElementById('den'),
+        num: document.getElementById('num'),
+        m: document.getElementById('m')
+    };
+
+    function getFracHTML(n, d) {
+        return `<div class="frac"><div class="frac-num">${n}</div><div class="frac-den">${d}</div></div>`;
+    }
+
+    function drawSlice(x, y, rad, startAngle, endAngle, isFilled, d, isHovered, isWhole) {
+        const midAngle = startAngle + (endAngle - startAngle) / 2;
+        const offset = isHovered ? rad * 0.1 : 0;
+        const ox = x + Math.cos(midAngle) * offset;
+        const oy = y + Math.sin(midAngle) * offset;
+
+        ctx.beginPath();
+        ctx.moveTo(ox, oy);
+        ctx.arc(ox, oy, rad, startAngle, endAngle);
+        ctx.closePath();
+        
+        if (isFilled) {
+            const grad = ctx.createRadialGradient(ox, oy, 0, ox, oy, rad);
+            grad.addColorStop(0, isWhole ? '#fbbf24' : '#fcd34d');
+            grad.addColorStop(1, isWhole ? '#d97706' : '#f59e0b');
+            ctx.fillStyle = grad;
+        } else {
+            ctx.fillStyle = '#f1f5f9'; // Lighter empty slice
+        }
+        ctx.fill();
+
+        ctx.strokeStyle = isWhole ? '#d97706' : '#cbd5e1';
+        ctx.lineWidth = isWhole ? 2 : 1;
+        ctx.stroke();
+
+        if (isFilled) {
+            const sliceWidth = (endAngle - startAngle) * (rad * 0.5);
+            let fontSize = Math.min(rad * 0.22, sliceWidth * 0.7);
+            if (fontSize > 5) { 
+                ctx.fillStyle = "#451a03"; // Dark brown text for contrast
+                ctx.font = `bold ${fontSize}px Inter`;
+                ctx.textAlign = "center";
+                ctx.fillText(`1/${d}`, ox + Math.cos(midAngle) * (rad * 0.6), oy + Math.sin(midAngle) * (rad * 0.6) + fontSize/3);
+            }
+        }
+    }
+
+    function checkHover(px, py, rad, startAngle, endAngle) {
+        const dx = mouseX - px, dy = mouseY - py;
+        if (Math.sqrt(dx*dx + dy*dy) > rad) return false;
+        let a = Math.atan2(dy, dx); if (a < 0) a += Math.PI * 2;
+        let s = startAngle % (Math.PI * 2), e = endAngle % (Math.PI * 2);
+        if (s < 0) s += Math.PI * 2; if (e < 0) e += Math.PI * 2;
+        return s < e ? (a >= s && a <= e) : (a >= s || a <= e);
+    }
+
+    function drawGroup(count, n, d, isPacked, startY, height) {
+        const sliceA = (Math.PI * 2) / d;
+        const cols = count > 8 ? 8 : (count > 4 ? 4 : Math.max(count, 1));
+        const rows = Math.ceil(count / cols);
+        const size = Math.min(cvs.width / (cols + 1), height / (rows + 0.5));
+        const rad = size * 0.38;
+        
+        const startX = (cvs.width - (cols * size)) / 2 + size/2;
+        const innerY = startY + (height - (rows * size)) / 2 + size/2;
+
+        const totSlices = parseInt(sliders.num.value) * parseInt(sliders.m.value);
+        const wholeCount = Math.floor(totSlices / d);
+        const remainder = totSlices % d;
+
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "bold 11px Inter";
+        ctx.textAlign = "left";
+        ctx.fillText(isPacked ? "PACKED (MIXED NUMBER)" : "UNPACKED (IMPROPER FRACTION)", 20, startY + 20);
+
+        for (let i = 0; i < count; i++) {
+            const px = startX + (i % cols) * size;
+            const py = innerY + Math.floor(i / cols) * size;
+            
+            let fills = n;
+            let isWhole = false;
+            
+            if (isPacked) {
+                fills = (i < wholeCount) ? d : remainder;
+                isWhole = (i < wholeCount);
+            }
+
+            for(let j=0; j<d; j++) {
+                const h = checkHover(px, py, rad, j*sliceA, (j+1)*sliceA);
+                drawSlice(px, py, rad, j*sliceA, (j+1)*sliceA, j < fills, d, h, isWhole);
+            }
+            if (isWhole) {
+                ctx.fillStyle = "var(--accent)";
+                ctx.font = `bold ${rad * 0.22}px Inter`;
+                ctx.textAlign = "center";
+                ctx.fillText("WHOLE", px, py + rad + 14);
+            }
+        }
+    }
+
+    function render() {
+        const d = parseInt(sliders.den.value), m = parseInt(sliders.m.value);
+        let n = parseInt(sliders.num.value); if (n >= d) n = d - 1; sliders.num.value = n;
+        sliders.num.max = d - 1;
+
+        document.getElementById('num-val').innerText = n;
+        document.getElementById('den-val').innerText = d;
+        document.getElementById('m-val').innerText = m;
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+        if (phase === 1) {
+            document.getElementById('eq').innerHTML = getFracHTML(n, d);
+            const r = Math.min(cvs.width, cvs.height) * 0.35;
+            for(let i=0; i<d; i++) drawSlice(cvs.width/2, cvs.height/2, r, i*(Math.PI*2/d), (i+1)*(Math.PI*2/d), i < n, d, checkHover(cvs.width/2, cvs.height/2, r, i*(Math.PI*2/d), (i+1)*(Math.PI*2/d)), false);
+        } else if (phase === 2) {
+            document.getElementById('eq').innerHTML = `${getFracHTML(n, d)} <span>&times;</span> <span>${m}</span> <span>=</span> <span>?</span>`;
+            drawGroup(m, n, d, false, 0, cvs.height);
+        } else {
+            const tot = n * m, w = Math.floor(tot / d), r = tot % d;
+            document.getElementById('eq').innerHTML = `${getFracHTML(n, d)} <span>&times;</span> <span>${m}</span> <span>=</span> ${getFracHTML(tot, d)} <span>=</span> ${w>0?`<span class="mixed-whole">${w}</span>`:''}${r>0?getFracHTML(r, d):''}`;
+            
+            // Split View Divider
+            ctx.strokeStyle = "#e2e8f0";
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.moveTo(50, cvs.height/2); ctx.lineTo(cvs.width-50, cvs.height/2); ctx.stroke();
+            ctx.setLineDash([]);
+            
+            drawGroup(m, n, d, false, 0, cvs.height/2);
+            drawGroup(w + (r > 0 ? 1 : 0), d, d, true, cvs.height/2, cvs.height/2);
+        }
+        requestAnimationFrame(render);
+    }
+
+    cvs.addEventListener('mousemove', (e) => {
+        const rect = cvs.getBoundingClientRect();
+        mouseX = e.clientX - rect.left; mouseY = e.clientY - rect.top;
+    });
+
+    function goPhase2() { phase = 2; updateUI(); }
+    function goPhase3() { phase = 3; updateUI(); }
+    function reset() { phase = 1; updateUI(); }
+    function updateUI() {
+        document.getElementById('p1').className = phase === 1 ? 'phase-box' : 'phase-box disabled';
+        document.getElementById('p2').className = phase === 2 ? 'phase-box' : 'phase-box disabled';
+        document.getElementById('reset').style.display = phase === 3 ? 'block' : 'none';
+    }
+    render();
+</script>
+</body>
+</html>
